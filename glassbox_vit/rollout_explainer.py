@@ -39,7 +39,7 @@ class AttentionRolloutExplainer:
         Calculates the Attention Rollout by multiplying attention matrices across all layers.
         """
         # Start with an identity matrix
-        result = torch.eye(attentions[0].size(-1)).to(attentions[0].device)
+        result = torch.eye(attentions[0].size(-1), device=attentions[0].device)
 
         for attention in attentions:
             # Average the attention heads for this layer
@@ -71,7 +71,7 @@ class AttentionRolloutExplainer:
         inputs = self.processor(images=pil_image, return_tensors="pt").to(self.device)
         
         with torch.no_grad():
-            outputs = self.model(**inputs)
+            outputs = self.raw_model(**inputs)
 
         # Safety check: Verify the model actually returned attention matrices
         if not hasattr(outputs, 'attentions') or not outputs.attentions:
@@ -100,6 +100,8 @@ class AttentionRolloutExplainer:
         # 5. Normalize and Resize the mask to match the original image
         mask_norm = mask_grid / np.max(mask_grid)
         mask_resized = cv2.resize(mask_norm, (original_width, original_height))
+
+
 
         # --- MANUAL OVERLAY RENDERING (GRAYSCALE + JET MAP) ---
         cmap = plt.get_cmap('jet')
