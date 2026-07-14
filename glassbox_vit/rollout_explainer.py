@@ -81,6 +81,7 @@ class AttentionRolloutExplainer:
             )
         attentions = outputs.attentions
 
+
         # 2. Get predictions
         probs = torch.nn.functional.softmax(outputs.logits, dim=-1)[0]
         predicted_label_id = int(torch.argmax(probs).item())
