@@ -5,6 +5,13 @@ import torchvision.transforms.functional as TF
 from PIL import Image as PILImage
 from captum.attr import GradientShap
 from captum.attr import visualization as viz
+import gc
+import io
+import matplotlib
+
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
 
 class ExpectedGradientsExplainer:
     """
@@ -26,13 +33,17 @@ class ExpectedGradientsExplainer:
         self.processor = processor
         self.device = next(self.model.parameters()).device
 
-        def hf_forward_wrapper(pixel_values):
-            outputs = self.model(pixel_values=pixel_values)
-            return outputs.logits
+        self.explainer = GradientShap(self._hf_forward_wrapper)
 
-        self.explainer = GradientShap(hf_forward_wrapper)
+    def _hf_forward_wrapper(self, pixel_values):
+        """
+        Private method to wrap the Hugging Face forward pass.
+        Extracting this from __init__ avoids re-compiling a closure in memory per instance.
+        """
+        outputs = self.model(pixel_values=pixel_values)
+        return outputs.logits
 
-    def generate(self, pil_image, baselines=None, n_samples=50):
+    def generate(self, pil_image, baselines=None, n_samples=50, resize_to_original=True):
         """
         Generates the explanation using Captum's official UI tool in a memory-safe way.
 
@@ -41,6 +52,9 @@ class ExpectedGradientsExplainer:
             baselines (torch.Tensor, optional): A batch of baseline images.
                                                 If None, generates blurred versions automatically.
             n_samples (int): Number of random samples to draw from the baselines.
+            resize_to_original (bool): If True, resizes the output heatmap to match the 
+                                       original pil_image size. WARNING: May cause spatial 
+                                       distortion if the original image isn't square.
 
         Returns:
             dict: Contains 'eg_image' (PIL.Image), 'predicted_label_id', and 'prediction_prob'.
@@ -68,7 +82,7 @@ class ExpectedGradientsExplainer:
         else:
             baselines = baselines.to(self.device)
 
-        # 4. Core Computation
+        # Core Computation
         attributions = self.explainer.attribute(
             input_tensor,
             baselines=baselines,
@@ -76,16 +90,11 @@ class ExpectedGradientsExplainer:
             n_samples=n_samples
         )
 
-        # 5. Format to NumPy for Captum Visualization
+        # Format to NumPy for Captum Visualization
         attributions_np = np.transpose(attributions.squeeze(0).cpu().detach().numpy(), (1, 2, 0))
         original_image_np = np.transpose(input_tensor.squeeze(0).cpu().detach().numpy(), (1, 2, 0))
 
-        # --- THE SAFE LIBRARY PATH (OFFICIAL CAPTUM RENDERING + STRICT MEMORY MANAGEMENT) ---
-        import matplotlib
-        matplotlib.use('Agg')  # Force background mode to prevent server UI crashes
-        import matplotlib.pyplot as plt
-        import io
-        import gc
+        
 
         # Let Captum handle the percentiles, outliers, and color blending automatically
         fig, axis = viz.visualize_image_attr(
@@ -97,20 +106,22 @@ class ExpectedGradientsExplainer:
             use_pyplot=False # Prevent Captum from drawing to screen
         )
 
-        # Extract the image safely
+        # Extract the image
         buf = io.BytesIO()
         fig.savefig(buf, format='png', bbox_inches='tight', pad_inches=0)
         buf.seek(0)
         final_image = PILImage.open(buf).convert('RGB')
 
-        # EXTREME MEMORY CLEANUP
+        # MEMORY CLEANUP
         fig.clf()
         plt.close(fig)
         buf.close()
         gc.collect()
 
         # Resize to match the original user input exactly
-        final_image = final_image.resize(pil_image.size)
+        if resize_to_original:
+            final_image = final_image.resize(pil_image.size)
+        
 
         return {
             'eg_image': final_image,

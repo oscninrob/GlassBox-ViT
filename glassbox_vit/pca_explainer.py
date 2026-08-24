@@ -26,7 +26,7 @@ class PCAExplainer:
         self.device = next(self.raw_model.parameters()).device
         self.raw_model.eval()
 
-    def generate(self, pil_image, interpolation=cv2.INTER_NEAREST):
+    def generate(self, pil_image, interpolation=cv2.INTER_NEAREST, resize_to_original=True):
         """
         Generates the PCA feature visualization for a single image.
         
@@ -35,17 +35,18 @@ class PCAExplainer:
             interpolation (int): cv2 interpolation method. Defaults to INTER_NEAREST 
                                  to clearly show the ViT patches. Use cv2.INTER_CUBIC 
                                  if you prefer smooth, cloud-like transitions.
+            resize_to_original (bool): If True, resizes the output heatmap to match 
+                                       the original pil_image size.
             
         Returns:
             dict: Containing the visual explanation (PIL.Image), predicted ID, and probability.
         """
-        image_np = np.array(pil_image.convert("RGB"))
-        original_height, original_width = image_np.shape[:2]
+       
 
-        # 1. Prepare inputs and send to the model's device
+        # Prepare inputs and send to the model's device
         inputs = self.processor(images=pil_image, return_tensors="pt").to(self.device)
 
-        # 2. Forward pass
+        # Forward pass
         with torch.no_grad():
             outputs = self.raw_model(**inputs)
 
@@ -54,19 +55,19 @@ class PCAExplainer:
             raise ValueError("The model did not return hidden states. "
                              "Please load it with `output_hidden_states=True`.")
 
-        # 3. Get predictions
+        # Get predictions
         probs = torch.nn.functional.softmax(outputs.logits, dim=-1)[0]
         predicted_label_id = int(torch.argmax(probs).item())
         prediction_prob = probs[predicted_label_id].item()
 
-        # 4. Extract last hidden state
+        # Extract last hidden state
         # Shape: [batch_size, sequence_length, hidden_size] (e.g., [1, 197, 768])
         last_hidden_state = outputs.hidden_states[-1][0]
 
         # Remove CLS token (index 0) to keep only the spatial image patches
         patch_tokens = last_hidden_state[1:].cpu().numpy()
 
-        # 5. Apply PCA to reduce dimensions to 3 (mapping to R, G, B channels)
+        # Apply PCA to reduce dimensions to 3 (mapping to R, G, B channels)
         pca = PCA(n_components=3)
         pca_features = pca.fit_transform(patch_tokens)
 
@@ -76,14 +77,22 @@ class PCAExplainer:
         # Avoid division by zero in edge cases
         pca_features = (pca_features - pca_min) / (pca_max - pca_min + 1e-8)
 
-        # 6. Reshape to 2D spatial grid (e.g., 14x14 or 16x16)
+        # Reshape to 2D spatial grid (e.g., 14x14 or 16x16)
         grid_size = int(np.sqrt(pca_features.shape[0]))
         pca_image = pca_features.reshape(grid_size, grid_size, 3)
 
-        # 7. Resize to match the original image resolution
+        # Determine target resolution based on API standards
+        if resize_to_original:
+            target_size = pil_image.size  # (width, height)
+        else:
+            # Scale to the exact spatial footprint the model evaluated (e.g., 224x224)
+            tensor_shape = inputs['pixel_values'].shape
+            target_size = (tensor_shape[-1], tensor_shape[-2])
+
+        # Resize to match the original image resolution
         pca_image_resized = cv2.resize(
             pca_image, 
-            (original_width, original_height), 
+            target_size, 
             interpolation=interpolation
         )
 

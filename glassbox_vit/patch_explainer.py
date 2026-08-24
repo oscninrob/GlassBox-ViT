@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image as PILImage
 from tqdm import tqdm
+import warnings
 
 class PatchOcclusionExplainer:
     """
@@ -20,7 +21,7 @@ class PatchOcclusionExplainer:
         """
         self.prediction_function = prediction_function
 
-    def generate(self, pil_image, patch_size=16, mask_value=0, batch_size=32, show_progress=False):
+    def generate(self, pil_image, patch_size=16, mask_value=0, batch_size=32, show_progress=False , resize_to_original=True ):
         """
         Generates a Patch Occlusion explanation for a single image.
         
@@ -34,49 +35,58 @@ class PatchOcclusionExplainer:
         Returns:
             dict: Containing the visual explanation (PIL.Image), predicted ID, and probability.
         """
+
+        if not resize_to_original:
+            warnings.warn(
+                "PatchOcclusion is a Black-Box explainer that naturally operates on the provided image dimensions. "
+                "The 'resize_to_original=False' flag is ignored to maintain API consistency."
+            )
+
+
         image_np = np.array(pil_image.convert("RGB"))
         height, width, _ = image_np.shape
 
-        # 1. Get base prediction (intact image)
+        # Get base prediction (intact image)
         real_probs = self.prediction_function(np.array([image_np]))[0]
         predicted_label_id = int(np.argmax(real_probs))
         base_prob = real_probs[predicted_label_id]
 
-        # 2. Calculate grid dimensions
+        # Calculate grid dimensions
         grid_h = height // patch_size
         grid_w = width // patch_size
         total_patches = grid_h * grid_w
 
-        # 3. Generate all occluded images in memory
-        occluded_images = []
-        for row in range(grid_h):
-            for col in range(grid_w):
-                img_occ = image_np.copy()
-                
-                y_start = row * patch_size
-                y_end = (row + 1) * patch_size
-                x_start = col * patch_size
-                x_end = (col + 1) * patch_size
-                
-                # Occlude the patch
-                img_occ[y_start:y_end, x_start:x_end, :] = mask_value
-                occluded_images.append(img_occ)
+        # Pre-calculate coordinates to avoid nested loops during inference
+        patch_coords = [(r, c) for r in range(grid_h) for c in range(grid_w)]
 
-        # 4. Evaluate all occluded images in batches
+
+        # Evaluate all occluded images in batches
         occ_probs = []
         iterator = range(0, total_patches, batch_size)
         if show_progress:
             iterator = tqdm(iterator, desc="Patch Occlusion")
 
         for b in iterator:
-            batch_imgs = occluded_images[b:b+batch_size]
-            batch_preds = self.prediction_function(batch_imgs)
-            
-            # Extract the probability of the originally predicted class
+            batch_coords = patch_coords[b:b + batch_size]
+            batch_imgs = []
+            # Generate only the images needed for the current batch
+            for (row, col) in batch_coords:
+                img_occ = image_np.copy()
+                y_start = row * patch_size
+                y_end = (row + 1) * patch_size
+                x_start = col * patch_size
+                x_end = (col + 1) * patch_size
+                
+                img_occ[y_start:y_end, x_start:x_end, :] = mask_value
+                batch_imgs.append(img_occ)
+
+            # Inference
+            batch_preds = self.prediction_function(np.array(batch_imgs))
             batch_scores = batch_preds[:, predicted_label_id]
             occ_probs.extend(batch_scores)
 
-        # 5. Calculate importance (Drop in probability)
+            
+        # Calculate importance (Drop in probability)
         heatmap = np.zeros(total_patches)
         for i in range(total_patches):
             # Importance = Base Prob - Occluded Prob
@@ -85,12 +95,12 @@ class PatchOcclusionExplainer:
 
         heatmap = heatmap.reshape((grid_h, grid_w))
 
-        # 6. Normalize and resize the heatmap
+        # Normalize and resize the heatmap
         vmax = np.max(heatmap)
         if vmax > 0:
             heatmap = heatmap / vmax
 
-        # CRITICAL: We use INTER_NEAREST to keep the sharp, blocky edges of the patches
+        # We use INTER_NEAREST to keep the sharp, blocky edges of the patches
         heatmap_resized = cv2.resize(heatmap, (width, height), interpolation=cv2.INTER_NEAREST)
 
         # --- MANUAL OVERLAY RENDERING (GRAYSCALE + JET MAP) ---

@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from PIL import Image as PILImage
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
+import cv2
 
 class _HuggingFaceModelWrapper(torch.nn.Module):
     """
@@ -38,6 +39,19 @@ def _reshape_transform(tensor):
     return result
 
 
+class CounterfactualOutputTarget:
+    """
+    Forces Grad-CAM to look for negative gradients.
+    Answers the question: What parts of the image made 
+    the prediction score for this class DECREASE?
+    """
+    def __init__(self, category):
+        self.category = category
+
+    def __call__(self, model_outputs):
+        return -model_outputs[self.category]
+
+
 class GradCamExplainer:
     """
     White-Box Explainer using Gradient-weighted Class Activation Mapping (Grad-CAM).
@@ -56,8 +70,7 @@ class GradCamExplainer:
         self.raw_model = model
         self.processor = processor
         
-        # EL TRUCO SENIOR: Leemos dónde está el modelo en lugar de forzarlo.
-        # Si el usuario lo puso en "cuda:1" o en "cpu", lo respetamos.
+        
         self.device = next(self.raw_model.parameters()).device
         
         self.raw_model.eval()
@@ -99,14 +112,14 @@ class GradCamExplainer:
         if target_module is not None:
             return [target_module]
             
-        # Fail gracefully if the architecture is completely alien
+        # Fail if the architecture is completely alien
         raise ValueError(
             "Could not automatically detect the target layer for Grad-CAM. "
             "Please pass 'target_layers' manually during initialization "
             "(e.g., target_layers=[model.base_model.layer[-1].layernorm_before])."
         )
 
-    def generate(self, pil_image, target_class_id=None):
+    def generate(self, pil_image, target_class_id=None, resize_to_original=True, counterfactual=False):
         """
         Generates a Grad-CAM explanation for a single image.
         
@@ -114,17 +127,21 @@ class GradCamExplainer:
             pil_image (PIL.Image): The input image in PIL format.
             target_class_id (int): Optional. The class ID to explain. If None, 
                                    it explains the model's top prediction.
+            resize_to_original (bool): If True, resizes the output heatmap to match the 
+                                       original pil_image size.
+            counterfactual (bool): If True, generates a negative Grad-CAM showing 
+                                   why the model DID NOT choose the target_class_id.
             
         Returns:
-            dict: Containing the visual explanation (PIL.Image), predicted ID, and probability.
+            dict: Containing the visual explanation (PIL.Image), predicted ID probability and class to explain.
         """
-        image_np = np.array(pil_image.convert("RGB"))
+        
 
-        # 1. Prepare image and pass it through the model
+        # Prepare image and pass it through the model
         inputs = self.processor(images=pil_image, return_tensors="pt").to(self.device)
         input_tensor = inputs['pixel_values']
         
-        # 2. Get predictions (using the wrapper)
+        # Get predictions (using the wrapper)
         with torch.no_grad():
             logits = self.wrapped_model(input_tensor)
         
@@ -135,13 +152,25 @@ class GradCamExplainer:
         # Decide which class to explain
         class_to_explain = target_class_id if target_class_id is not None else model_predicted_id
 
-        # 3. Generate Grad-CAM heatmap
-        targets = [ClassifierOutputTarget(class_to_explain)]
+        # Generate Grad-CAM heatmap
+        if counterfactual:
+            targets = [CounterfactualOutputTarget(class_to_explain)]
+        else:
+            targets = [ClassifierOutputTarget(class_to_explain)]
         
         # Generates a numpy array [height, width] normalized between 0 and 1
         grayscale_cam = self.cam(input_tensor=input_tensor, targets=targets)[0, :]
 
-        # --- MANUAL OVERLAY RENDERING (GRAYSCALE + JET MAP) ---
+        # --- SHAPE ALIGNMENT & BACKGROUND SELECTION ---
+        if resize_to_original:
+            grayscale_cam = cv2.resize(grayscale_cam, pil_image.size)
+            background_np = np.array(pil_image.convert("RGB"))
+        else:
+            tensor_bg = input_tensor.squeeze(0).cpu().numpy().transpose(1, 2, 0)
+            tensor_bg = (tensor_bg - tensor_bg.min()) / (tensor_bg.max() - tensor_bg.min())
+            background_np = (tensor_bg * 255).astype(np.uint8)
+
+        # --- OVERLAY RENDERING (GRAYSCALE + JET MAP) ---
         cmap = plt.get_cmap('jet')
         mapped_colors = cmap(grayscale_cam)[:, :, :3] 
 
@@ -150,7 +179,7 @@ class GradCamExplainer:
         alpha = np.expand_dims(alpha, axis=-1)
 
         # Convert original image to GRAYSCALE
-        img_float = image_np.astype(np.float32) / 255.0
+        img_float = background_np.astype(np.float32) / 255.0
         gray = np.dot(img_float[..., :3], [0.2989, 0.5870, 0.1140])
         gray_rgb = np.stack((gray,)*3, axis=-1)
 

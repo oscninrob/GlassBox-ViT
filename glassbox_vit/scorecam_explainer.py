@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from PIL import Image as PILImage
 from pytorch_grad_cam import ScoreCAM
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
+import cv2
 
 class _HuggingFaceModelWrapper(torch.nn.Module):
     """
@@ -104,7 +105,7 @@ class ScoreCamExplainer:
             "Please pass 'target_layers' manually during initialization."
         )
 
-    def generate(self, pil_image, target_class_id=None):
+    def generate(self, pil_image, target_class_id=None,resize_to_original=True):
         """
         Generates a Score-CAM explanation for a single image.
         
@@ -112,17 +113,18 @@ class ScoreCamExplainer:
             pil_image (PIL.Image): The input image in PIL format.
             target_class_id (int): Optional. The class ID to explain. If None, 
                                    it explains the model's top prediction.
+            resize_to_original (bool): If True, resizes the output heatmap to match 
+                                       the original pil_image size.
             
         Returns:
             dict: Containing the visual explanation (PIL.Image), predicted ID, and probability.
         """
-        image_np = np.array(pil_image.convert("RGB"))
 
-        # 1. Prepare image and pass it through the model
+        # Prepare image and pass it through the model
         inputs = self.processor(images=pil_image, return_tensors="pt").to(self.device)
         input_tensor = inputs['pixel_values']
         
-        # 2. Get predictions (using the wrapper)
+        # Get predictions (using the wrapper)
         with torch.no_grad():
             logits = self.wrapped_model(input_tensor)
         
@@ -133,11 +135,22 @@ class ScoreCamExplainer:
         # Decide which class to explain
         class_to_explain = target_class_id if target_class_id is not None else model_predicted_id
 
-        # 3. Generate Score-CAM heatmap
+        # Generate Score-CAM heatmap
         targets = [ClassifierOutputTarget(class_to_explain)]
         
         # Generates a numpy array [height, width] normalized between 0 and 1
         grayscale_cam = self.cam(input_tensor=input_tensor, targets=targets)[0, :]
+
+
+        # --- SHAPE ALIGNMENT & BACKGROUND SELECTION ---
+        if resize_to_original:
+            grayscale_cam = cv2.resize(grayscale_cam, pil_image.size)
+            background_np = np.array(pil_image.convert("RGB"))
+        else:
+            tensor_bg = input_tensor.squeeze(0).cpu().numpy().transpose(1, 2, 0)
+            tensor_bg = (tensor_bg - tensor_bg.min()) / (tensor_bg.max() - tensor_bg.min())
+            background_np = (tensor_bg * 255).astype(np.uint8)
+
 
         # --- MANUAL OVERLAY RENDERING (GRAYSCALE + JET MAP) ---
         cmap = plt.get_cmap('jet')
@@ -148,7 +161,7 @@ class ScoreCamExplainer:
         alpha = np.expand_dims(alpha, axis=-1)
 
         # Convert original image to GRAYSCALE
-        img_float = image_np.astype(np.float32) / 255.0
+        img_float = background_np.astype(np.float32) / 255.0            
         gray = np.dot(img_float[..., :3], [0.2989, 0.5870, 0.1140])
         gray_rgb = np.stack((gray,)*3, axis=-1)
 
