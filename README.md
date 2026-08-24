@@ -7,13 +7,13 @@ Explainability (XAI) for Vision Transformers
 ## What is GlassBox-ViT?
 
 
-GlassBox-ViT is an open-source explainability library designed specifically to address the interpretability challenges of Vision Transformers (ViTs). It provides a unified collection of XAI methods that work seamlessly with both standard architectures and custom models, enabling practitioners to understand what their vision models learn, where they attend, and why they make specific decisions.
+GlassBox-ViT is an open-source explainability library designed specifically to address the interpretability challenges of Vision Transformers (ViTs). It provides a unified collection of XAI methods that work seamlessly with both standard architectures and custom models (they can be supported with manual target-layer configuration), enabling practitioners to understand what their vision models learn, where they attend, and why they make specific decisions.
 
 It separates Black Box methods (compatible with any prediction function) from White Box techniques (leveraging native ViT representations), ensuring architectural clarity and respect for infrastructure constraints. Additionally, it provides complementary analysis tools for training sample influence tracing and model compression via knowledge distillation.
 
 The fundamental problem it solves is straightforward: Vision Transformers remain opaque. Millions of parameters and complex attention mechanisms obscure the reasoning behind predictions. GlassBox-ViT bridges this gap by offering:
 
-- **13 Production-Ready XAI Methods**: 6 White Box, 5 Black Box, and 2 complementary analysis tools.
+- **13 XAI and model-analysis methods**: 6 White Box, 5 Black Box, and 2 complementary analysis tools.
 - Unified and consistent visualizations for attention and attribution
 - **Flexible architecture**: Black Box methods work with arbitrary prediction functions; White Box methods require native Hugging Face ViT models for deeper insights.
 - **Infrastructure-aware design**: automatically adapts to user tensor devices and data types without explicit device management
@@ -42,7 +42,7 @@ pip install -e .
 All image explainers follow a consistent workflow: create an explainer instance, then call `generate()` to generate visual explanations.
 
 ```python
-from glassbox_vit import GradCAMExplainer
+from glassbox_vit import GradCamExplainer
 from transformers import AutoImageProcessor, AutoModel
 from PIL import Image
 
@@ -51,7 +51,7 @@ model = AutoModel.from_pretrained("google/vit-base-patch16-224")
 processor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224")
 
 # Create explainer and generate explanation
-explainer = GradCAMExplainer(model=model, processor=processor)
+explainer = GradCamExplainer(model=model, processor=processor)
 result = explainer.generate(image)
 
 # Extract results

@@ -4,8 +4,8 @@ Includes both White-Box (gradients/attention) and Black-Box (sampling) methods.
 """
 
 # White-Box Explainer Methods
-from .rollout_explainer import RolloutExplainer
-from .gradcam_explainer import GradCAMExplainer
+from .rollout_explainer import AttentionRolloutExplainer
+from .gradcam_explainer import GradCamExplainer
 from .pca_explainer import PCAExplainer
 from .smoothgrad_explainer import SmoothGradExplainer
 from .expected_gradients_explainer import ExpectedGradientsExplainer
@@ -22,11 +22,11 @@ from .patch_explainer import PatchOcclusionExplainer
 # Other methods
 
 from .tracIn_explainer import TracInExplainer
-from .destilling import KnowledgeDistillationTrainer
+from .distilling import KnowledgeDistillationTrainer
 
 __all__ = [
-    "RolloutExplainer",
-    "GradCAMExplainer",
+    "AttentionRolloutExplainer",
+    "GradCamExplainer",
     "PCAExplainer",
     "SmoothGradExplainer",
     "ExpectedGradientsExplainer",
