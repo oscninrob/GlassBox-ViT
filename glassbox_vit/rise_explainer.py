@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from PIL import Image as PILImage
 from skimage.transform import resize
 from tqdm import tqdm
+import warnings
 
 class RiseExplainer:
     """
@@ -23,22 +24,21 @@ class RiseExplainer:
         self.prediction_function = prediction_function
         self.random_state = random_state
         
-    def _generate_masks(self, num_masks, grid_size, p1, input_size):
+    def _generate_mask_batch(self, batch_size, grid_size, p1, input_size):
         """
         Internal method to generate random blurred masks.
         """
-        if self.random_state is not None:
-            np.random.seed(self.random_state)
+        
             
         cell_size = np.ceil(np.array(input_size) / grid_size)
-        up_size = (grid_size + 1) * cell_size
+        up_size = tuple(((grid_size + 1) * cell_size).astype(int))
 
         # Create binary grid
-        grid = np.random.rand(num_masks, grid_size, grid_size) < p1
+        grid = np.random.rand(batch_size, grid_size, grid_size) < p1
         grid = grid.astype('float32')
 
-        masks = np.empty((num_masks, *input_size))
-        for i in range(num_masks):
+        masks = np.empty((batch_size, *input_size), dtype=np.float32)
+        for i in range(batch_size):
             # Resize to smooth the mask boundaries (bilinear interpolation)
             mask_up = resize(grid[i], up_size, order=1, mode='reflect', anti_aliasing=False)
             
@@ -49,41 +49,55 @@ class RiseExplainer:
             
         return masks
 
-    def generate(self, pil_image, num_masks=2000, grid_size=8, p1=0.5, batch_size=32, show_progress=False):
+    def generate(self, pil_image, num_masks=2000, grid_size=8, p1=0.5, batch_size=32, show_progress=False,resize_to_original=True):
         """
-        Generates a RISE explanation for a single image.
+        Generates a RISE explanation for a single image in a memory-safe way.
         
         Args:
             pil_image (PIL.Image): The input image in PIL format.
-            num_masks (int): Number of random masks to generate. Higher is better but slower.
+            num_masks (int): Number of random masks. Higher is better but slower.
             grid_size (int): Size of the grid for the mask generation (e.g., 8 means 8x8).
             p1 (float): Probability of a grid cell being unmasked (visible).
-            batch_size (int): Number of masked images to send to the model at once.
+            batch_size (int): Number of masked images to evaluate at once to prevent OOM.
             show_progress (bool): If True, displays a tqdm progress bar.
-            
+            resize_to_original (bool): Maintained for API consistency. Black-box methods
+                                       natively operate on and return the provided dimensions.
+
         Returns:
-            dict: Containing the visual explanation (PIL.Image), predicted ID, and probability.
+                    dict: Containing the visual explanation (PIL.Image), predicted ID, and probability.
         """
+        if not resize_to_original:
+            warnings.warn(
+                "RISE is a Black-Box explainer that naturally operates on the provided image dimensions. "
+                "The 'resize_to_original=False' flag is ignored to maintain API consistency."
+            )
+
+        if self.random_state is not None:
+            np.random.seed(self.random_state)
+
         image_np = np.array(pil_image.convert("RGB"))
         input_size = image_np.shape[:2]
 
-        # 1. Get the base prediction (unmasked image)
+        # Get the base prediction (unmasked image)
         real_probs = self.prediction_function(np.array([image_np]))[0]
         predicted_label_id = int(np.argmax(real_probs))
 
-        # 2. Generate random masks
-        masks = self._generate_masks(num_masks, grid_size, p1, input_size)
+       
 
-        # 3. Evaluate masked images
-        salience_map = np.zeros(input_size)
+        # Evaluate masked images
+        salience_map = np.zeros(input_size, dtype=np.float32)
         
-        # Setup iterator (with or without tqdm)
+        # Setup iterator 
         iterator = range(0, num_masks, batch_size)
         if show_progress:
             iterator = tqdm(iterator, desc="RISE Evaluation")
 
         for b in iterator:
-            batch_masks = masks[b:b+batch_size]
+            # Handle the last batch which might be smaller than batch_size
+            current_batch_size = min(batch_size, num_masks - b)
+            
+            # Generate only the masks needed for this exact batch
+            batch_masks = self._generate_mask_batch(current_batch_size, grid_size, p1, input_size)
             batch_imgs = []
 
             # Apply masks to the image
@@ -91,8 +105,9 @@ class RiseExplainer:
                 img_masked = (image_np * np.expand_dims(mask, axis=2)).astype(np.uint8)
                 batch_imgs.append(img_masked)
 
+            
             # Query the model using the injected prediction function
-            batch_probs = self.prediction_function(batch_imgs)
+            batch_probs = self.prediction_function(np.array(batch_imgs))
             
             # Extract the scores for the winning class
             scores = batch_probs[:, predicted_label_id]

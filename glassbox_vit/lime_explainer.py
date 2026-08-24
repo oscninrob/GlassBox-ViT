@@ -2,6 +2,7 @@ import numpy as np
 from PIL import Image as PILImage
 from lime import lime_image
 from skimage.segmentation import mark_boundaries
+import warnings 
 
 class LimeExplainer:
     """
@@ -23,7 +24,7 @@ class LimeExplainer:
         self.prediction_function = prediction_function
         self.explainer = lime_image.LimeImageExplainer(random_state=random_state)
         
-    def generate(self, pil_image, num_samples=500):
+    def generate(self, pil_image, num_samples=500, resize_to_original=True):
         """
         Generates a LIME explanation for a single image.
         
@@ -31,6 +32,8 @@ class LimeExplainer:
             pil_image (PIL.Image): The input image in PIL format.
             num_samples (int): Number of perturbations LIME will generate. Higher values
                                yield more stable explanations but take longer to compute.
+            resize_to_original (bool): Maintained for API consistency with White-Box explainers.
+                                       LIME natively outputs the original image size.
             
         Returns:
             dict: A dictionary containing:
@@ -38,6 +41,13 @@ class LimeExplainer:
                   - 'predicted_label_id' (int): The class ID predicted by the model.
                   - 'prediction_prob' (float): The probability of the predicted class.
         """
+
+        if not resize_to_original:
+            warnings.warn(
+                "LIME is a Black-Box explainer that naturally operates on the provided image dimensions. "
+                "The 'resize_to_original=False' flag is ignored to maintain API consistency."
+            )
+            
         # Convert PIL image to NumPy array (RGB) standard format for LIME
         image_np = np.array(pil_image.convert("RGB"))
 

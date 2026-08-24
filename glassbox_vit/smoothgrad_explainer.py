@@ -23,17 +23,41 @@ class SmoothGradExplainer:
         self.processor = processor
         self.device = next(self.model.parameters()).device
 
-        def hf_forward_wrapper(pixel_values):
-            outputs = self.model(pixel_values=pixel_values)
-            return outputs.logits
-
         # SmoothGrad uses raw gradients (Saliency) inside a Noise Tunnel
-        saliency = Saliency(hf_forward_wrapper)
+        saliency = Saliency(self._hf_forward_wrapper)
         self.explainer = NoiseTunnel(saliency)
 
-    def generate(self, pil_image, num_samples=50, stdevs=0.15):
+    def _hf_forward_wrapper(self, pixel_values):
         """
-        Generates a SmoothGrad explanation using Captum's official safe rendering.
+        Private method to wrap the Hugging Face forward pass.
+        Extracting this avoids memory overhead from closures.
+        """
+        outputs = self.model(pixel_values=pixel_values)
+        return outputs.logits
+
+    def generate(self, pil_image, num_samples=50, stdevs=0.15,resize_to_original=True):
+        """
+        Generates a SmoothGrad explanation by averaging the gradients of multiple 
+        noisy copies of the input to reduce visual artifacts.
+
+        Args:
+            pil_image (PILImage.Image): The input image in PIL format.
+            num_samples (int): The number of noisy baseline images generated. 
+                               Higher values yield cleaner, more robust heatmaps 
+                               but linearly increase the computational cost (forward passes).
+            stdevs (float): The standard deviation of the Gaussian noise added to each sample.
+                            It dictates the spread of the noise distribution relative to 
+                            the input tensor's data range.
+            resize_to_original (bool): If True, resizes the output heatmap to match the 
+                                       original pil_image size. WARNING: If the original image 
+                                       was not a perfect square, this will stretch the 
+                                       center-cropped heatmap, causing spatial misalignment.
+
+        Returns:
+            dict: A dictionary containing:
+                  - 'smoothgrad_image' (PIL.Image): The visual explanation overlay.
+                  - 'predicted_label_id' (int): The class ID predicted by the model.
+                  - 'prediction_prob' (float): The probability of the predicted class.
         """
         inputs = self.processor(images=pil_image, return_tensors="pt")
         input_tensor = inputs['pixel_values'].to(self.device)
@@ -78,7 +102,8 @@ class SmoothGradExplainer:
         buf.close()
         gc.collect()
 
-        final_image = final_image.resize(pil_image.size)
+        if resize_to_original:
+            final_image = final_image.resize(pil_image.size)
 
         return {
             'smoothgrad_image': final_image,

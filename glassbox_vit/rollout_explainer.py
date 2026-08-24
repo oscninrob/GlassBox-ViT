@@ -54,7 +54,7 @@ class AttentionRolloutExplainer:
 
         return result
 
-    def generate(self, pil_image):
+    def generate(self, pil_image, resize_to_original=True):
         """
         Generates the Attention Rollout map for a single image.
         
@@ -64,10 +64,8 @@ class AttentionRolloutExplainer:
         Returns:
             dict: Containing the visual explanation (PIL.Image), predicted ID, and probability.
         """
-        image_np = np.array(pil_image.convert("RGB"))
-        original_height, original_width = image_np.shape[:2]
 
-        # 1. Prepare image and pass it through the model
+        # Prepare image and pass it through the model
         inputs = self.processor(images=pil_image, return_tensors="pt").to(self.device)
         
         with torch.no_grad():
@@ -82,15 +80,15 @@ class AttentionRolloutExplainer:
         attentions = outputs.attentions
 
 
-        # 2. Get predictions
+        # Get predictions
         probs = torch.nn.functional.softmax(outputs.logits, dim=-1)[0]
         predicted_label_id = int(torch.argmax(probs).item())
         prediction_prob = probs[predicted_label_id].item()
 
-        # 3. Compute Attention Rollout
+        # Compute Attention Rollout
         rollout = self._calculate_rollout(outputs.attentions)
 
-        # 4. Extract CLS token attention to the image patches
+        # Extract CLS token attention to the image patches
         # Index 0 is batch, 0 is CLS token, 1: are the image patches
         mask = rollout[0, 0, 1:].cpu().numpy()
 
@@ -98,9 +96,20 @@ class AttentionRolloutExplainer:
         grid_size = int(np.sqrt(mask.shape[0]))
         mask_grid = mask.reshape(grid_size, grid_size)
 
-        # 5. Normalize and Resize the mask to match the original image
+        # Normalize and Resize the mask to match the original image
         mask_norm = mask_grid / np.max(mask_grid)
-        mask_resized = cv2.resize(mask_norm, (original_width, original_height))
+        # --- SHAPE ALIGNMENT & BACKGROUND SELECTION ---
+        if resize_to_original:
+            mask_resized = cv2.resize(mask_norm, pil_image.size)
+            background_np = np.array(pil_image.convert("RGB"))
+        else:
+            tensor_shape = inputs['pixel_values'].shape
+            target_size = (tensor_shape[-1], tensor_shape[-2]) # (width, height)
+            mask_resized = cv2.resize(mask_norm, target_size)
+            
+            tensor_bg = inputs['pixel_values'].squeeze(0).cpu().numpy().transpose(1, 2, 0)
+            tensor_bg = (tensor_bg - tensor_bg.min()) / (tensor_bg.max() - tensor_bg.min())
+            background_np = (tensor_bg * 255).astype(np.uint8)
 
 
 
@@ -113,7 +122,7 @@ class AttentionRolloutExplainer:
         alpha = np.expand_dims(alpha, axis=-1)
 
         # Convert original image to GRAYSCALE
-        img_float = image_np.astype(np.float32) / 255.0
+        img_float = background_np.astype(np.float32) / 255.0
         gray = np.dot(img_float[..., :3], [0.2989, 0.5870, 0.1140])
         gray_rgb = np.stack((gray,)*3, axis=-1)
 

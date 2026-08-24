@@ -21,16 +21,31 @@ class IntegratedGradientsExplainer:
         self.model.eval()
         self.processor = processor
         self.device = next(self.model.parameters()).device
+        self.explainer = IntegratedGradients(self._hf_forward_wrapper)
 
-        def hf_forward_wrapper(pixel_values):
-            outputs = self.model(pixel_values=pixel_values)
-            return outputs.logits
+    def _hf_forward_wrapper(self, pixel_values):
+        """
+        Private method to wrap the Hugging Face forward pass.
+        Extracting this avoids memory overhead from closures.
+        """
+        outputs = self.model(pixel_values=pixel_values)
+        return outputs.logits
 
-        self.explainer = IntegratedGradients(hf_forward_wrapper)
-
-    def generate(self, pil_image, baselines=None, n_steps=50):
+    def generate(self, pil_image, baselines=None, n_steps=50, resize_to_original=True):
         """
         Generates an IG explanation using Captum's official safe rendering.
+        Args:
+            pil_image (PIL.Image): The input image in PIL format.
+            baselines (torch.Tensor, optional): The baseline image tensor. If None, 
+                                                defaults to a black image (all zeros).
+            n_steps (int): Number of steps for the integral approximation. 
+                           Higher values yield more accurate heatmaps but are slower.
+            resize_to_original (bool): If True, resizes the output heatmap to match the 
+                                       original pil_image size. WARNING: May cause spatial 
+                                       distortion if the original image isn't square.
+
+        Returns:
+            dict: Containing the visual explanation (PIL.Image), predicted ID, and probability.
         """
         inputs = self.processor(images=pil_image, return_tensors="pt")
         input_tensor = inputs['pixel_values'].to(self.device)
@@ -79,8 +94,9 @@ class IntegratedGradientsExplainer:
         buf.close()
         gc.collect()
 
-        final_image = final_image.resize(pil_image.size)
-
+        if resize_to_original:
+            final_image = final_image.resize(pil_image.size)
+        
         return {
             'ig_image': final_image,
             'predicted_label_id': predicted_label_id,
