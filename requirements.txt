@@ -1,0 +1,27 @@
+# GlassBox-ViT - Runtime tested on Google Colab GPU runtime
+# Python: 3.12.x
+#
+# Core versions mirror the current Google Colab GPU runtime where available.
+# XAI packages below are pinned to the latest PyPI releases as of 2026-08-27,
+# since these are the packages you install explicitly in Colab.
+#
+# Note: Colab supplies CUDA-enabled PyTorch wheels. The version pins below
+# intentionally omit the local +cu128 suffix so pip can resolve the matching
+# wheel for the current platform.
+
+numpy==2.1.3
+torch==2.11.0
+torchvision==0.26.0
+Pillow==11.3.0
+matplotlib==3.10.0
+opencv-python==5.0.0.93
+tqdm==4.67.3
+scikit-image==0.25.2
+scikit-learn==1.6.1
+transformers==5.13.1
+
+# Explicitly installed in the Colab notebooks
+captum==0.9.0
+grad-cam==1.5.7
+lime==0.2.0.1
+shap==0.52.0
