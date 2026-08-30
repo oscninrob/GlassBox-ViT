@@ -32,8 +32,8 @@ pip install glassbox-vit
 Or from source:
 
 ```bash
-git clone https://github.com/yourusername/glassbox-vit.git
-cd glassbox-vit
+git clone https://github.com/oscninrob/GlassBox-ViT.git
+cd GlassBox-ViT
 pip install -e . 
 ```
 
