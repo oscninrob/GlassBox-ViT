@@ -108,6 +108,8 @@ print(f"Confidence: {result['prediction_prob']:.4f}")
 print(f"Label: {model.config.id2label[pred_id]}")
 ```
 
+The output can be seen in `examples/gradcam.png`
+
 > **Note:** For detailed examples, refer to the `examples/` directory.
 
 ---
