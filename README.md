@@ -108,7 +108,9 @@ print(f"Confidence: {result['prediction_prob']:.4f}")
 print(f"Label: {model.config.id2label[pred_id]}")
 ```
 
-The output can be seen in `examples/gradcam.png`
+| Example input | Grad-CAM output |
+| :---: | :---: |
+| ![Example dermoscopic image](examples/1b7fab84-c996-419a-bded-fc1b7c52869d.png) | ![Grad-CAM explanation](examples/gradcam.png) |
 
 > **Note:** For detailed examples, refer to the `examples/` directory.
 
