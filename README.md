@@ -37,6 +37,20 @@ cd GlassBox-ViT
 pip install -e . 
 ```
 
+If using `uv` as your virtual environment manager:
+
+``` 
+uv venv --python 3.12
+source .venv/bin/activate
+uv pip install glassbox-vit
+```
+
+If using cuda, verify that torch can access the GPU with:
+
+```
+uv run python -c "import torch; print(torch.cuda.is_available())"
+```
+
 ### Basic Usage
 
 All image explainers follow a consistent workflow: create an explainer instance, then call `generate()` to generate visual explanations.
