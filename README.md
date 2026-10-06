@@ -43,19 +43,26 @@ All image explainers follow a consistent workflow: create an explainer instance,
 
 ```python
 from glassbox_vit import GradCamExplainer
-from transformers import AutoImageProcessor, AutoModel
+from transformers import AutoImageProcessor,AutoModelForImageClassification
 from PIL import Image
+from skimage import data
+from IPython.display import display
+
 
 # Load model and processor
-model = AutoModel.from_pretrained("google/vit-base-patch16-224")
+model = AutoModelForImageClassification.from_pretrained("google/vit-base-patch16-224")
 processor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224")
+
+#Load and resize image
+image_np = data.chelsea()
+image = Image.fromarray(image_np).convert("RGB").resize((224, 224))
 
 # Create explainer and generate explanation
 explainer = GradCamExplainer(model=model, processor=processor)
 result = explainer.generate(image)
 
 # Extract results
-result['gradcam_image'].show()
+display(result['gradcam_image'])
 print(f"Prediction: {result['predicted_label_id']}")
 print(f"Confidence: {result['prediction_prob']:.4f}")
 ```
