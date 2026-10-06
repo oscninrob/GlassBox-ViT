@@ -41,30 +41,57 @@ pip install -e .
 
 All image explainers follow a consistent workflow: create an explainer instance, then call `generate()` to generate visual explanations.
 
+An example image used for generating explanations can be found in the `examples/` directory.
+
 ```python
+from pathlib import Path
+
 from glassbox_vit import GradCamExplainer
-from transformers import AutoImageProcessor,AutoModelForImageClassification
+from huggingface_hub import download_bucket_files
+from transformers import AutoImageProcessor, AutoModelForImageClassification
 from PIL import Image
-from skimage import data
-from IPython.display import display
 
 
-# Load model and processor
-model = AutoModelForImageClassification.from_pretrained("google/vit-base-patch16-224")
-processor = AutoImageProcessor.from_pretrained("google/vit-base-patch16-224")
+bucket = "z72pepee/tfm-explainability"
+remote_dir = "vit-example-checkpoint-1170"
 
-#Load and resize image
-image_np = data.chelsea()
-image = Image.fromarray(image_np).convert("RGB").resize((224, 224))
+local_dir = Path("./checkpoint-1170")
+local_dir.mkdir(parents=True, exist_ok=True)
 
-# Create explainer and generate explanation
+download_bucket_files(
+    bucket,
+    files=[
+        (
+            f"{remote_dir}/config.json",
+            local_dir / "config.json",
+        ),
+        (
+            f"{remote_dir}/model.safetensors",
+            local_dir / "model.safetensors",
+        ),
+        (
+            f"{remote_dir}/preprocessor_config.json",
+            local_dir / "preprocessor_config.json",
+        ),
+    ]
+)
+
+model = AutoModelForImageClassification.from_pretrained(local_dir)
+processor = AutoImageProcessor.from_pretrained(local_dir)
+
+image = Image.open("1b7fab84-c996-419a-bded-fc1b7c52869d.png").convert("RGB")
+
 explainer = GradCamExplainer(model=model, processor=processor)
+
 result = explainer.generate(image)
 
-# Extract results
-display(result['gradcam_image'])
-print(f"Prediction: {result['predicted_label_id']}")
+result["gradcam_image"].save("gradcam.png")
+
+pred_id = result["predicted_label_id"]
+
+print(f"Prediction ID: {pred_id}")
 print(f"Confidence: {result['prediction_prob']:.4f}")
+print(f"Label: {model.config.id2label[pred_id]}")
 ```
 
 > **Note:** For detailed examples, refer to the `examples/` directory.
