@@ -106,6 +106,8 @@ pred_id = result["predicted_label_id"]
 print(f"Prediction ID: {pred_id}")
 print(f"Confidence: {result['prediction_prob']:.4f}")
 print(f"Label: {model.config.id2label[pred_id]}")
+
+del explainer
 ```
 
 | Example input | Grad-CAM output |
